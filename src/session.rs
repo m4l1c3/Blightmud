@@ -1,17 +1,24 @@
 use libtelnet_rs::{compatibility::CompatibilityTable, telnet::op_option as opt, Parser};
 use log::debug;
-use std::sync::{atomic::AtomicBool, mpsc::Sender, Arc, Mutex};
-
-use crate::{
-    io::Logger, lua::LuaScript, net::MudConnection, net::OutputBuffer, net::BUFFER_SIZE,
-    timer::TimerEvent, Event,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::Sender,
+    Arc, Mutex,
 };
 
-#[derive(Default)]
-pub struct CommunicationOptions {
-    pub mccp2: bool,
-    pub debug_gmcp: bool,
-}
+use crate::{
+    io::{LogWriter, Logger},
+    lua::LuaScript,
+    net::MudConnection,
+    net::BUFFER_SIZE,
+    net::{OutputBuffer, TelnetMode},
+    timer::TimerEvent,
+    tts::TTSController,
+    Event,
+};
+
+#[cfg(test)]
+use mockall::automock;
 
 #[derive(Clone)]
 pub struct Session {
@@ -19,21 +26,26 @@ pub struct Session {
     pub gmcp: Arc<AtomicBool>,
     pub main_writer: Sender<Event>,
     pub timer_writer: Sender<TimerEvent>,
-    pub terminate: Arc<AtomicBool>,
     pub telnet_parser: Arc<Mutex<Parser>>,
     pub output_buffer: Arc<Mutex<OutputBuffer>>,
     pub prompt_input: Arc<Mutex<String>>,
+    pub save_history: Arc<AtomicBool>,
     pub lua_script: Arc<Mutex<LuaScript>>,
-    pub comops: Arc<Mutex<CommunicationOptions>>,
-    pub logger: Arc<Mutex<Logger>>,
+    pub logger: Arc<Mutex<dyn LogWriter + Send>>,
+    pub tts_ctrl: Arc<Mutex<TTSController>>,
 }
 
+#[cfg_attr(test, automock)]
 impl Session {
     pub fn connect(&mut self, host: &str, port: u16, tls: bool) -> bool {
         let mut connected = false;
+        let mut conn_id = 0u16;
         if let Ok(mut connection) = self.connection.lock() {
             connected = match connection.connect(host, port, tls) {
-                Ok(_) => true,
+                Ok(_) => {
+                    conn_id = connection.id;
+                    true
+                }
                 Err(err) => {
                     debug!("Failed to connect: {}", err);
                     false
@@ -44,7 +56,7 @@ impl Session {
             self.main_writer
                 .send(Event::StartLogging(host.to_string(), false))
                 .unwrap();
-            self.main_writer.send(Event::Connected).unwrap();
+            self.main_writer.send(Event::Connected(conn_id)).unwrap();
         }
         connected
     }
@@ -56,11 +68,11 @@ impl Session {
             if let Ok(mut output_buffer) = self.output_buffer.lock() {
                 output_buffer.clear()
             }
-            self.comops = Arc::new(Mutex::new(CommunicationOptions::default()));
-            self.telnet_parser = Arc::new(Mutex::new(Parser::with_support_and_capacity(
-                BUFFER_SIZE,
-                build_compatibility_table(),
-            )));
+
+            if let Ok(mut parser) = self.telnet_parser.lock() {
+                parser.options.reset_states();
+            };
+
             self.stop_logging();
         }
     }
@@ -92,6 +104,9 @@ impl Session {
 
     pub fn start_logging(&self, host: &str) {
         if let Ok(mut logger) = self.logger.lock() {
+            self.main_writer
+                .send(Event::Info(format!("Started logging for: {}", host)))
+                .unwrap();
             logger.start_logging(host).ok();
         }
     }
@@ -105,6 +120,14 @@ impl Session {
         }
     }
 
+    pub fn save_history(&self) -> bool {
+        self.save_history.load(Ordering::Relaxed)
+    }
+
+    pub fn set_save_history(&self, toggle: bool) {
+        self.save_history.store(toggle, Ordering::Relaxed);
+    }
+
     pub fn send_event(&mut self, event: Event) {
         self.main_writer.send(event).unwrap();
     }
@@ -113,6 +136,7 @@ impl Session {
         self.disconnect();
         self.main_writer.send(Event::Quit)?;
         self.timer_writer.send(TimerEvent::Quit)?;
+        self.tts_ctrl.lock().unwrap().shutdown();
         Ok(())
     }
 }
@@ -122,6 +146,8 @@ pub struct SessionBuilder {
     main_writer: Option<Sender<Event>>,
     timer_writer: Option<Sender<TimerEvent>>,
     screen_dimensions: Option<(u16, u16)>,
+    tts_enabled: bool,
+    save_history: bool,
 }
 
 impl SessionBuilder {
@@ -130,6 +156,8 @@ impl SessionBuilder {
             main_writer: None,
             timer_writer: None,
             screen_dimensions: None,
+            tts_enabled: false,
+            save_history: false,
         }
     }
 
@@ -148,25 +176,39 @@ impl SessionBuilder {
         self
     }
 
+    pub fn tts_enabled(mut self, enabled: bool) -> Self {
+        self.tts_enabled = enabled;
+        self
+    }
+
+    pub fn save_history(mut self, enabled: bool) -> Self {
+        self.save_history = enabled;
+        self
+    }
+
     pub fn build(self) -> Session {
         let main_writer = self.main_writer.unwrap();
         let timer_writer = self.timer_writer.unwrap();
         let dimensions = self.screen_dimensions.unwrap();
+        let tts_enabled = self.tts_enabled;
+        let save_history = self.save_history;
         Session {
             connection: Arc::new(Mutex::new(MudConnection::new())),
             gmcp: Arc::new(AtomicBool::new(false)),
             main_writer: main_writer.clone(),
             timer_writer,
-            terminate: Arc::new(AtomicBool::new(false)),
             telnet_parser: Arc::new(Mutex::new(Parser::with_support_and_capacity(
                 BUFFER_SIZE,
                 build_compatibility_table(),
             ))),
-            output_buffer: Arc::new(Mutex::new(OutputBuffer::new())),
+            output_buffer: Arc::new(Mutex::new(OutputBuffer::new(
+                &TelnetMode::UnterminatedPrompt,
+            ))),
             prompt_input: Arc::new(Mutex::new(String::new())),
+            save_history: Arc::new(AtomicBool::new(save_history)),
             lua_script: Arc::new(Mutex::new(LuaScript::new(main_writer, dimensions))),
-            comops: Arc::new(Mutex::new(CommunicationOptions::default())),
             logger: Arc::new(Mutex::new(Logger::default())),
+            tts_ctrl: Arc::new(Mutex::new(TTSController::new(tts_enabled))),
         }
     }
 }
@@ -182,7 +224,10 @@ fn build_compatibility_table() -> CompatibilityTable {
 #[cfg(test)]
 mod session_test {
 
-    use super::{Session, SessionBuilder};
+    use mockall::predicate::eq;
+
+    use super::*;
+    use crate::io::MockLogWriter;
     use crate::{event::Event, model::Line, timer::TimerEvent};
     use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -218,16 +263,26 @@ mod session_test {
 
     #[test]
     fn test_logging() {
-        let (session, reader, _timer_reader) = build_session();
-        assert!(!session.logger.lock().unwrap().is_logging());
+        let (mut session, reader, _timer_reader) = build_session();
+        let mut logger = MockLogWriter::new();
+        logger
+            .expect_start_logging()
+            .with(eq("mysteryhost"))
+            .times(1)
+            .returning(|_| Ok(()));
+        logger.expect_stop_logging().times(1).returning(|| Ok(()));
+        session.logger = Arc::new(Mutex::new(logger));
+
         session.start_logging("mysteryhost");
-        assert!(session.logger.lock().unwrap().is_logging());
+        assert_eq!(
+            reader.recv(),
+            Ok(Event::Info("Started logging for: mysteryhost".to_string()))
+        );
         session.stop_logging();
         assert_eq!(
             reader.recv(),
             Ok(Event::Info("Logging stopped".to_string()))
         );
-        assert!(!session.logger.lock().unwrap().is_logging());
     }
 
     #[test]

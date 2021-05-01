@@ -30,7 +30,7 @@ pub fn register_panic_hook() {
         automatically submit any information anywhere. It would however be a great help if you took
         a minute to submit a bug report on github.
 
-        [URL]: https://github.com/liquidityc/blightmud/issues"#
+        [URL]: https://github.com/blightmud/blightmud/issues"#
             .to_string()
             .lines()
             .for_each(|line| print!("{}\r\n", line));
@@ -49,5 +49,6 @@ pub fn register_panic_hook() {
         .for_each(|line| print!("{}\r\n", line));
 
         println!("\x1b[0m");
+        std::process::exit(1);
     }));
 }

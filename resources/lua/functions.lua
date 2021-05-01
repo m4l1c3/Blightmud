@@ -7,3 +7,24 @@ function bytes_to_string(bytes)
 	return table.concat(chars)
 end
 
+-- Make Lua's `print()` write to Blightmud's output buffer.
+function _G.print(...)
+	local strings = {}
+	for _,v in ipairs{...} do
+		table.insert(strings, tostring(v))
+	end
+	blight.output(table.unpack(strings))
+end
+
+function cformat(msg, ...)
+  msg = msg:gsub("<(.-)>", function (s)
+    if s:find(':', 1, true) then
+      local fg, bg = s:match('(%w+):(%w+)')
+      return _G['C_' .. fg:upper()] .. _G['BG_' .. bg:upper()]
+    else
+      return _G['C_' .. s:upper()]
+    end
+  end)
+
+  return msg:format(...)
+end

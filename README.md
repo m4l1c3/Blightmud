@@ -1,35 +1,42 @@
-![Rust](https://github.com/LiquidityC/blightmud/workflows/Rust/badge.svg)
-![Clippy check](https://github.com/LiquidityC/blightmud/workflows/Clippy%20check/badge.svg)
-![Security audit](https://github.com/LiquidityC/blightmud/workflows/Security%20audit/badge.svg)
-[![Coverage Status](https://coveralls.io/repos/github/LiquidityC/Blightmud/badge.svg?branch=dev)](https://coveralls.io/github/LiquidityC/Blightmud?branch=dev)
+![Rust](https://github.com/Blightmud/Blightmud/workflows/Rust/badge.svg)
+![Security audit](https://github.com/Blightmud/blightmud/workflows/Security%20audit/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/Blightmud/Blightmud/badge.svg?branch=dev)](https://coveralls.io/github/Blightmud/Blightmud?branch=dev)
 # Blightmud  : A mud client for the terminal
 
-Blightmud has been a passion project of mine for some time. A big user of the old
-but great tinyfugue I always wanted to create my own similar mud client. Even
-though I don't play much muds these days.
+Blightmud has been a passion project of mine for some time. A big user of the
+old but great [tinyfugue](http://tinyfugue.sourceforge.net/) I always wanted to
+create my own similar mud client. Even though I don't play much muds these
+days.
 
 ![screenshot](resources/images/demo.gif)
 
 ## The name?
-The client is written in rust. Some navigating throught the thesaurus brought me to the word 'blight' and here we are.
+The client is written in rust. Some navigating throught the thesaurus brought me to the word **blight** and here we are.
 
 ## Features
 - Completely terminal based (mac and linux)
 - Telnet:
     - TLS connections
     - GMCP support
+    - MSDP support
     - MCCP2 support (compress2)
 - Lua scripting:
     - Output and sending
     - Aliases
     - Triggers
-    - GMCP hooks and sending
     - Timers
     - Customizing status bar
     - Persistent storage
+    - Session storage
     - Keybindings
+    - Audio playback (music/ambiance and sound effects)
+    - Text-To-Speech
+    - Mouse scrolling (experimental)
+    - Plugins
+    - Sockets (TCP connecting and sending only)
 - Low resource and fast
 - In client help and manuals
+- Native Text-To-Speech functionality (optional compile)
 - Tab completion
 
 ## Compiling
@@ -37,22 +44,31 @@ The client is written in rust. Some navigating throught the thesaurus brought me
 - Run `cargo build` to compile
 - Run `cargo run` to run
 
+### Compile with text-to-speech
+
+- Install rust
+- Run `cargo build --all-features` to compile
+- Run `cargo run --all-features` to run
+
+In order for this to build correctly you will need to install some additional
+dev dependencies: **libclang** and **libspeechd**. Below are some installation
+commands that might fit your system:
+
+- Ubuntu    `apt install libclang-dev libspeechd-dev speech-dispatcher speech-dispatcher-espeak espeak`
+- Arch      `pacman -S speech-dispatcher espeak`
+
 ## Installation
 - **Ubuntu/Debian**      : Deb packages can be found on the releases page
 - **Archlinux/Manjaro**  : Packages are available on AUR
-- **Mac/Homebrew**       : We have a homebrew tap `brew tap LiquidityC/blightmud`
+- **Mac/Homebrew**       : We have a homebrew tap `brew tap Blightmud/blightmud` (intel only, if you're on Apple Silcon (darwin) compiling is the best option)
 - **Other/Alternative**  : Download source and run `cargo install --path .` from the project root
+- **Windows**            : No native windows support but Blightmud runs fine under WSL
 
 ## Support, questions and help
 Join our [discord](https://discord.gg/qnxgUC5)
 
 ## Contributing
 All contributions are welcome. Check out [contributing guidelines](CONTRIBUTING.md).
-
-## Contributors
-<a href="https://github.com/LiquidityC/blightmud/graphs/contributors">
-  <img src="https://contributors-img.web.app/image?repo=LiquidityC/blightmud" />
-</a>
 
 ## Side notes
 This is my first rust project that has actually grown a bit. Some things might look silly but thanks to rust they should still be safe. Anywho. If you find some antipattern where you have a better idea I'm more then happy to se the PR and learn some more rustier ways.

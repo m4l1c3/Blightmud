@@ -45,20 +45,16 @@ impl MudConnection {
     fn get_input_stream(&self) -> Option<&Arc<Mutex<dyn Read + Send>>> {
         if let Some(stream) = &self.tls_stream {
             Some(&stream.input_stream)
-        } else if let Some(stream) = &self.stream {
-            Some(&stream.input_stream)
         } else {
-            None
+            self.stream.as_ref().map(|stream| &stream.input_stream)
         }
     }
 
     fn get_output_stream(&self) -> Option<&Arc<Mutex<dyn Write + Send>>> {
         if let Some(stream) = &self.tls_stream {
             Some(&stream.output_stream)
-        } else if let Some(stream) = &self.stream {
-            Some(&stream.output_stream)
         } else {
-            None
+            self.stream.as_ref().map(|stream| &stream.output_stream)
         }
     }
 
@@ -79,6 +75,7 @@ impl MudConnection {
         } else {
             self.stream = Some(RwStream::new(TcpStream::connect(uri)?));
         }
+        self.id = connection_id();
         Ok(())
     }
 

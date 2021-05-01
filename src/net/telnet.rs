@@ -1,6 +1,6 @@
 use crate::event::Event;
 use crate::net::OutputBuffer;
-use crate::session::{CommunicationOptions, Session};
+use crate::session::Session;
 use libtelnet_rs::{
     events::{TelnetEvents, TelnetNegotiation as Neg},
     telnet::{op_command as cmd, op_option as opt},
@@ -9,17 +9,15 @@ use libtelnet_rs::{
 use log::debug;
 use std::sync::{mpsc::Sender, Arc, Mutex};
 
-#[derive(Eq, PartialEq)]
-enum TelnetMode {
-    Undefined,
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum TelnetMode {
     TerminatedPrompt,
     UnterminatedPrompt,
-    NoPrompt,
 }
 
 impl Default for TelnetMode {
     fn default() -> Self {
-        TelnetMode::Undefined
+        TelnetMode::UnterminatedPrompt
     }
 }
 
@@ -27,7 +25,6 @@ pub struct TelnetHandler {
     parser: Arc<Mutex<Parser>>,
     main_writer: Sender<Event>,
     output_buffer: Arc<Mutex<OutputBuffer>>,
-    comops: Arc<Mutex<CommunicationOptions>>,
     mode: TelnetMode,
 }
 
@@ -37,14 +34,14 @@ impl TelnetHandler {
             parser: session.telnet_parser,
             main_writer: session.main_writer,
             output_buffer: session.output_buffer,
-            comops: session.comops,
-            mode: TelnetMode::Undefined,
+            mode: TelnetMode::UnterminatedPrompt,
         }
     }
 }
 
 impl TelnetHandler {
-    pub fn parse(&mut self, data: &[u8]) {
+    pub fn parse(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        let mut result = None;
         let events = if let Ok(mut parser) = self.parser.lock() {
             parser.receive(data)
         } else {
@@ -55,15 +52,21 @@ impl TelnetHandler {
                 TelnetEvents::IAC(iac) => {
                     debug!("IAC: {}", iac.command);
                     match iac.command {
-                        cmd::GA | cmd::EOR => {
-                            let mut buffer = self.output_buffer.lock().unwrap();
+                        cmd::GA | cmd::EOR | cmd::NOP => {
                             if self.mode != TelnetMode::TerminatedPrompt {
                                 debug!("Setting telnet mode: TerminatedPrompt");
                                 self.mode = TelnetMode::TerminatedPrompt;
-                                buffer.flush();
+                                let mut output_buffer = self.output_buffer.lock().unwrap();
+                                output_buffer.telnet_mode(&self.mode);
+                            }
+                            let mut buffer = self.output_buffer.lock().unwrap();
+                            if buffer.has_new_data() {
+                                let prompt = buffer.buffer_to_prompt(true);
+                                debug!("IAC prompt: {}", prompt);
+                                self.main_writer.send(Event::Prompt(prompt)).unwrap();
                             } else {
+                                // Just flush
                                 buffer.buffer_to_prompt(true);
-                                self.main_writer.send(Event::Prompt).unwrap();
                             }
                         }
                         _ => {}
@@ -82,12 +85,14 @@ impl TelnetHandler {
                         }
                     }
                 }
+                TelnetEvents::DecompressImmediate(buffer) => {
+                    debug!("Breaking on buff: {:?}", &buffer);
+                    result = Some(buffer);
+                    break;
+                }
                 TelnetEvents::Subnegotiation(data) => match data.option {
                     opt::MCCP2 => {
                         debug!("Initiated MCCP2 compression");
-                        if let Ok(mut comops) = self.comops.lock() {
-                            comops.mccp2 = true;
-                        }
                     }
                     opt => {
                         self.main_writer
@@ -104,7 +109,7 @@ impl TelnetHandler {
                 TelnetEvents::DataReceive(msg) => {
                     if !msg.is_empty() {
                         if let Ok(mut output_buffer) = self.output_buffer.lock() {
-                            let new_lines = output_buffer.receive(msg.as_slice());
+                            let new_lines = output_buffer.receive(&msg);
                             for line in new_lines {
                                 self.main_writer.send(Event::MudOutput(line)).unwrap();
                             }
@@ -114,26 +119,15 @@ impl TelnetHandler {
                 }
             };
         }
+        result
     }
 
     pub fn handle_prompt(&mut self) {
-        if let Ok(mut output_buffer) = self.output_buffer.lock() {
-            if self.mode == TelnetMode::Undefined {
-                if output_buffer.is_empty() {
-                    debug!("Setting telnet mode: NoPrompt");
-                    self.mode = TelnetMode::NoPrompt;
-                } else if !output_buffer.is_empty() && output_buffer.len() < 80 {
-                    debug!("Setting telnet mode: UnterminatedPrompt");
-                    self.mode = TelnetMode::UnterminatedPrompt;
-                }
-            }
-
-            if self.mode == TelnetMode::UnterminatedPrompt
-                && !output_buffer.is_empty()
-                && output_buffer.len() < 80
-            {
-                output_buffer.buffer_to_prompt(true);
-                self.main_writer.send(Event::Prompt).unwrap();
+        if self.mode == TelnetMode::UnterminatedPrompt {
+            if let Ok(mut output_buffer) = self.output_buffer.lock() {
+                let prompt = output_buffer.buffer_to_prompt(false);
+                debug!("END prompt: {}", prompt);
+                self.main_writer.send(Event::Prompt(prompt)).unwrap();
             }
         }
     }

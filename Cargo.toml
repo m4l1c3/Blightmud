@@ -1,39 +1,46 @@
 [package]
 name = "blightmud"
-version = "2.1.0"
+version = "3.1.0"
 description = "A terminal mud-client"
 readme = "README.md"
 license = "GPL3"
 authors = ["Linus Probert"]
 edition = "2018"
+build = "build.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+text-to-speech = ["tts"]
 
 [dependencies]
-libtelnet-rs = "1.0.0"
-termion = "1.5.5"
-log = "0.4.11"
+libtelnet-rs = "1.1.2"
+termion = "1.5.6"
+log = "0.4.14"
 simple-logging = "2.0.2"
 chrono = "0.4.19"
-signal-hook = "0.1.16"
+signal-hook = "0.3.7"
 rlua = "0.17.0"
-regex = "1.3.9"
-dirs = "3.0.1"
+regex = "1.4.5"
 strip-ansi-escapes = "0.1.0"
 timer = "0.2.0"
-flate2 = "1.0.18"
-mdcat = { version = "0.21.1", default-features = false }
+flate2 = "1.0.20"
+mdcat = { version = "0.22.3", default-features = false }
 pulldown-cmark = "0.8.0"
-syntect = "4.4.0"
-serde = { version = "1.0.116", features = ['derive'] }
-ron = "0.6.2"
-anyhow = "1.0.33"
+syntect = "4.5.0"
+serde = { version = "1.0.125", features = ['derive'] }
+ron = "0.6.4"
+anyhow = "1.0.40"
 lazy_static = "1.4.0"
-rs-complete = "1.0.0"
-simple-error = "0.2.2"
+rs-complete = "1.1.1"
+simple-error = "0.2.3"
 getopts = "0.2.21"
-curl = "0.4.33"
-serde_json = "1.0.58"
+curl = "0.4.35"
 human-panic = "1.0.3"
-shellexpand = "2.0.0"
-native-tls = "0.2.4"
+native-tls = "0.2.7"
+tts = { version = "0.15.2", optional = true }
+serde_json = "1.0.64"
+git2 = "0.13.17"
+rodio = "0.13.1"
+
+[dev-dependencies]
+mockall = "0.9.1"
+mockall_double = "0.2.0"
